@@ -1,0 +1,251 @@
+const fs = require('fs');
+const https = require('https');
+
+async function fetchWithRetry(url, options, maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = https.get(url, options, (res) => {
+          let data = '';
+          
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              resolve({ status: res.statusCode, data });
+            } else {
+              reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+            }
+          });
+        });
+        
+        req.on('error', reject);
+        req.setTimeout(10000, () => {
+          req.destroy();
+          reject(new Error('Request timeout'));
+        });
+      });
+    } catch (error) {
+      console.warn(`请求失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+async function getMatchNodes(mgdbId) {
+  const nodes = [];
+  
+  try {
+    const response = await fetchWithRetry(`https://www.miguvideo.com/p/live/${mgdbId}`, {
+      headers: {
+        'referer': 'https://www.miguvideo.com/p/schedule/',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0'
+      }
+    });
+    
+    const html = response.data;
+    const initialDataMatch = html.match(/window\.__INITIAL_BASIC_DATA__\s*=\s*({[^;]+});/);
+    
+    if (initialDataMatch) {
+      try {
+        const initialData = JSON.parse(initialDataMatch[1]);
+        const matchData = initialData[mgdbId];
+        
+        if (matchData && matchData.code === 200 && matchData.body && matchData.body.multiPlayList) {
+          // 从 preList 中提取节点数据
+          if (matchData.body.multiPlayList.preList) {
+            for (const item of matchData.body.multiPlayList.preList) {
+              nodes.push({
+                pID: item.pID,
+                name: item.name,
+                type: "pre"
+              });
+            }
+          }
+          
+          // 从 liveList 中提取节点数据
+          if (matchData.body.multiPlayList.liveList) {
+            for (const item of matchData.body.multiPlayList.liveList) {
+              nodes.push({
+                pID: item.pID,
+                name: item.name,
+                type: "live"
+              });
+            }
+          }
+          
+          // 从 replayList 中提取节点数据
+          if (matchData.body.multiPlayList.replayList) {
+            for (const item of matchData.body.multiPlayList.replayList) {
+              nodes.push({
+                pID: item.pID,
+                name: item.name,
+                type: "replay"
+              });
+            }
+          }
+        }
+      } catch (parseError) {
+        console.error(`解析 JSON 数据失败 (mgdbId: ${mgdbId}):`, parseError.message);
+      }
+    }
+  } catch (error) {
+    console.error(`获取节点数据失败 (mgdbId: ${mgdbId}):`, error.message);
+  }
+  
+  return nodes;
+}
+
+async function fetchAndProcessData() {
+  try {
+    console.log('开始获取赛事数据...');
+    
+    // 获取主JSON数据
+    const jsonResponse = await fetchWithRetry('https://vms-sc.miguvideo.com/vms-match/v6/staticcache/basic/match-list/normal-match-list/0/all/default/1/miguvideo');
+    const jsonData = JSON.parse(jsonResponse.data);
+    
+    console.log('主数据获取成功，开始处理比赛数据...');
+    
+    const result = [];
+    const stats = {
+      totalMatches: 0,
+      matchesWithNodes: 0,
+      matchesWithoutNodes: 0,
+      totalNodesFound: 0,
+      competitionStats: {}
+    };
+    
+    const matchList = jsonData.body.matchList;
+    const dateKeys = Object.keys(matchList).sort();
+    
+    // 处理每个日期的比赛
+    for (const dateKey of dateKeys) {
+      const matches = matchList[dateKey];
+      console.log(`处理日期 ${dateKey}，共 ${matches.length} 场比赛`);
+      
+      for (const match of matches) {
+        stats.totalMatches++;
+        
+        // 获取节点数据
+        console.log(`获取比赛 ${match.mgdbId} 的节点数据...`);
+        const nodes = await getMatchNodes(match.mgdbId);
+        stats.totalNodesFound += nodes.length;
+        
+        if (!stats.competitionStats[match.competitionName]) {
+          stats.competitionStats[match.competitionName] = {
+            total: 0,
+            withNodes: 0,
+            withoutNodes: 0
+          };
+        }
+        stats.competitionStats[match.competitionName].total++;
+        
+        const mergedMatch = {
+          mgdbId: match.mgdbId,
+          date: match.date,
+          pID: match.pID,
+          title: match.title,
+          keyword: match.keyword,
+          sportItemId: match.sportItemId,
+          matchStatus: match.matchStatus,
+          matchField: match.matchField || "",
+          competitionName: match.competitionName,
+          padImg: match.padImg || "",
+          competitionLogo: match.competitionLogo || "",
+          pkInfoTitle: match.pkInfoTitle,
+          modifyTitle: match.modifyTitle,
+          presenters: match.presenters ? match.presenters.map(p => p.name).join(" ") : "",
+          matchInfo: { time: match.keyword },
+          nodes: nodes
+        };
+        
+        if (nodes.length > 0) {
+          stats.matchesWithNodes++;
+          stats.competitionStats[match.competitionName].withNodes++;
+        } else {
+          stats.matchesWithoutNodes++;
+          stats.competitionStats[match.competitionName].withoutNodes++;
+        }
+        
+        result.push(mergedMatch);
+        
+        // 添加延迟以避免请求过于频繁
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    
+    // 生成最终数据
+    const finalData = {
+      success: true,
+      updateTime: new Date().toISOString(),
+      stats: stats,
+      data: result
+    };
+    
+    // 输出统计信息
+    printFinalStats(stats);
+    
+    return finalData;
+    
+  } catch (error) {
+    console.error('处理数据时发生错误:', error);
+    return {
+      success: false,
+      error: error.message,
+      updateTime: new Date().toISOString(),
+      data: []
+    };
+  }
+}
+
+function printFinalStats(stats) {
+  console.log('\n📈 ========== 处理完成统计 ==========');
+  console.log(`🏆 总比赛场次: ${stats.totalMatches}`);
+  console.log(`✅ 有直播节点的比赛: ${stats.matchesWithNodes}`);
+  console.log(`❌ 无直播节点的比赛: ${stats.matchesWithoutNodes}`);
+  console.log(`📺 总匹配频道数: ${stats.totalNodesFound}`);
+  console.log(`📊 匹配成功率: ${((stats.matchesWithNodes / stats.totalMatches) * 100).toFixed(1)}%`);
+  
+  console.log('\n🏅 各赛事统计:');
+  for (const [competition, compStats] of Object.entries(stats.competitionStats)) {
+    const successRate = ((compStats.withNodes / compStats.total) * 100).toFixed(1);
+    console.log(`   ${competition}: ${compStats.withNodes}/${compStats.total} (${successRate}%)`);
+  }
+  
+  console.log('====================================\n');
+}
+
+// 主执行函数
+async function main() {
+  try {
+    console.log('🚀 开始执行数据获取任务...');
+    
+    const data = await fetchAndProcessData();
+    
+    // 保存到文件
+    const filename = `sports-data-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    fs.writeFileSync(filename, JSON.stringify(data, null, 2));
+    
+    console.log(`✅ 数据已保存到文件: ${filename}`);
+    console.log(`📊 共处理 ${data.data.length} 场比赛`);
+    
+    // 同时保存一个最新的文件
+    fs.writeFileSync('sports-data-latest.json', JSON.stringify(data, null, 2));
+    console.log('✅ 最新数据已保存到: sports-data-latest.json');
+    
+  } catch (error) {
+    console.error('❌ 执行失败:', error);
+  }
+}
+
+// 如果直接运行此文件
+if (require.main === module) {
+  main();
+}
+
+module.exports = { fetchAndProcessData, getMatchNodes };
