@@ -1,6 +1,14 @@
 const fs = require('fs');
 const https = require('https');
 
+// 获取上海时间
+function getShanghaiTime() {
+  const now = new Date();
+  // 上海时间 = UTC +8
+  const shanghaiTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return shanghaiTime.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+}
+
 async function fetchWithRetry(url, options, maxRetries = 2) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -112,13 +120,6 @@ async function fetchAndProcessData() {
     console.log('主数据获取成功，开始处理比赛数据...');
     
     const result = [];
-    const stats = {
-      totalMatches: 0,
-      matchesWithNodes: 0,
-      matchesWithoutNodes: 0,
-      totalNodesFound: 0,
-      competitionStats: {}
-    };
     
     const matchList = jsonData.body.matchList;
     const dateKeys = Object.keys(matchList).sort();
@@ -129,21 +130,9 @@ async function fetchAndProcessData() {
       console.log(`处理日期 ${dateKey}，共 ${matches.length} 场比赛`);
       
       for (const match of matches) {
-        stats.totalMatches++;
-        
         // 获取节点数据
         console.log(`获取比赛 ${match.mgdbId} 的节点数据...`);
         const nodes = await getMatchNodes(match.mgdbId);
-        stats.totalNodesFound += nodes.length;
-        
-        if (!stats.competitionStats[match.competitionName]) {
-          stats.competitionStats[match.competitionName] = {
-            total: 0,
-            withNodes: 0,
-            withoutNodes: 0
-          };
-        }
-        stats.competitionStats[match.competitionName].total++;
         
         const mergedMatch = {
           mgdbId: match.mgdbId,
@@ -164,14 +153,6 @@ async function fetchAndProcessData() {
           nodes: nodes
         };
         
-        if (nodes.length > 0) {
-          stats.matchesWithNodes++;
-          stats.competitionStats[match.competitionName].withNodes++;
-        } else {
-          stats.matchesWithoutNodes++;
-          stats.competitionStats[match.competitionName].withoutNodes++;
-        }
-        
         result.push(mergedMatch);
         
         // 添加延迟以避免请求过于频繁
@@ -182,13 +163,9 @@ async function fetchAndProcessData() {
     // 生成最终数据
     const finalData = {
       success: true,
-      updateTime: new Date().toISOString(),
-      stats: stats,
+      updateTime: getShanghaiTime(),
       data: result
     };
-    
-    // 输出统计信息
-    printFinalStats(stats);
     
     return finalData;
     
@@ -197,27 +174,10 @@ async function fetchAndProcessData() {
     return {
       success: false,
       error: error.message,
-      updateTime: new Date().toISOString(),
+      updateTime: getShanghaiTime(),
       data: []
     };
   }
-}
-
-function printFinalStats(stats) {
-  console.log('\n📈 ========== 处理完成统计 ==========');
-  console.log(`🏆 总比赛场次: ${stats.totalMatches}`);
-  console.log(`✅ 有直播节点的比赛: ${stats.matchesWithNodes}`);
-  console.log(`❌ 无直播节点的比赛: ${stats.matchesWithoutNodes}`);
-  console.log(`📺 总匹配频道数: ${stats.totalNodesFound}`);
-  console.log(`📊 匹配成功率: ${((stats.matchesWithNodes / stats.totalMatches) * 100).toFixed(1)}%`);
-  
-  console.log('\n🏅 各赛事统计:');
-  for (const [competition, compStats] of Object.entries(stats.competitionStats)) {
-    const successRate = ((compStats.withNodes / compStats.total) * 100).toFixed(1);
-    console.log(`   ${competition}: ${compStats.withNodes}/${compStats.total} (${successRate}%)`);
-  }
-  
-  console.log('====================================\n');
 }
 
 // 主执行函数
