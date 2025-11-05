@@ -46,6 +46,7 @@ async function fetchWithRetry(url, options, maxRetries = 2) {
 }
 
 async function getMatchNodes(mgdbId) {
+  const seenNodes = new Set();
   const nodes = [];
   
   try {
@@ -65,38 +66,27 @@ async function getMatchNodes(mgdbId) {
         const matchData = initialData[mgdbId];
         
         if (matchData && matchData.code === 200 && matchData.body && matchData.body.multiPlayList) {
-          // 从 preList 中提取节点数据
-          if (matchData.body.multiPlayList.preList) {
-            for (const item of matchData.body.multiPlayList.preList) {
-              nodes.push({
-                pID: item.pID,
-                name: item.name,
-                type: "pre"
-              });
-            }
-          }
           
-          // 从 liveList 中提取节点数据
-          if (matchData.body.multiPlayList.liveList) {
-            for (const item of matchData.body.multiPlayList.liveList) {
-              nodes.push({
-                pID: item.pID,
-                name: item.name,
-                type: "live"
-              });
+          // 按照原来的顺序处理节点数据：preList → liveList → replayList
+          const processNodeList = (nodeList) => {
+            if (nodeList) {
+              for (const item of nodeList) {
+                const nodeKey = `${item.pID}|${item.name}`;
+                if (!seenNodes.has(nodeKey)) {
+                  seenNodes.add(nodeKey);
+                  nodes.push({
+                    pID: item.pID,
+                    name: item.name
+                  });
+                }
+              }
             }
-          }
+          };
           
-          // 从 replayList 中提取节点数据
-          if (matchData.body.multiPlayList.replayList) {
-            for (const item of matchData.body.multiPlayList.replayList) {
-              nodes.push({
-                pID: item.pID,
-                name: item.name,
-                type: "replay"
-              });
-            }
-          }
+          // 保持原来的处理顺序
+          processNodeList(matchData.body.multiPlayList.preList);
+          processNodeList(matchData.body.multiPlayList.liveList);
+          processNodeList(matchData.body.multiPlayList.replayList);
         }
       } catch (parseError) {
         console.error(`解析 JSON 数据失败 (mgdbId: ${mgdbId}):`, parseError.message);
