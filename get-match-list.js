@@ -196,7 +196,7 @@ async function main() {
     console.log('🚀 开始执行数据获取任务...');
     
     // ========== 在这里修改模式 ==========
-    const MODE = 'all'; // 可选: 'all'全部 | 'today'今天 | 'tomorrow'明天 | 'today_tomorrow'今明两天
+    const MODE = 'today'; // 可选: 'all'全部 | 'today'今天 | 'tomorrow'明天 | 'today_tomorrow'今明两天
     // ===================================
     
     console.log(`📋 当前模式: ${MODE}`);
