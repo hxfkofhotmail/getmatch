@@ -4,8 +4,8 @@
   "description": "Fetch sports data from miguvideo",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "fetch": "node index.js"
+    "start": "node get-match-list.js",
+    "fetch": "node get-match-list.js"
   },
   "keywords": ["sports", "data", "fetcher"],
   "author": "Your Name",
