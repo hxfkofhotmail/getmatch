@@ -9,6 +9,13 @@ function getShanghaiTime() {
   return shanghaiTime.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 }
 
+// 获取日期字符串（用于筛选）
+function getDateString(daysFromNow = 0) {
+  const now = new Date();
+  const targetDate = new Date(now.getTime() + daysFromNow * 24 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000);
+  return targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
 async function fetchWithRetry(url, options, maxRetries = 2) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -242,4 +249,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { fetchAndProcessData, getMatchNodes };
+module.exports = { fetchAndProcessData, getMatchNodes, getDateString };
