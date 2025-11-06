@@ -109,7 +109,7 @@ async function fetchAndProcessData() {
     
     console.log('主数据获取成功，开始处理比赛数据...');
     
-    const result = {};
+    const result = [];
     
     const matchList = jsonData.body.matchList;
     const dateKeys = Object.keys(matchList).sort();
@@ -118,8 +118,6 @@ async function fetchAndProcessData() {
     for (const dateKey of dateKeys) {
       const matches = matchList[dateKey];
       console.log(`处理日期 ${dateKey}，共 ${matches.length} 场比赛`);
-      
-      result[dateKey] = [];
       
       for (const match of matches) {
         // 获取节点数据
@@ -145,7 +143,7 @@ async function fetchAndProcessData() {
           nodes: nodes
         };
         
-        result[dateKey].push(mergedMatch);
+        result.push(mergedMatch);
         
         // 添加延迟以避免请求过于频繁
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -167,7 +165,7 @@ async function fetchAndProcessData() {
       success: false,
       error: error.message,
       updateTime: getShanghaiTime(),
-      data: {}
+      data: []
     };
   }
 }
@@ -179,15 +177,16 @@ async function main() {
     
     const data = await fetchAndProcessData();
     
-    // 检查数据是否有效
-    if (data.success && data.data && Object.keys(data.data).length > 0) {
-      // 直接保存到 sports-data-latest.json
-      fs.writeFileSync('sports-data-latest.json', JSON.stringify(data, null, 2));
-      console.log('✅ 最新数据已保存到: sports-data-latest.json');
-      console.log(`📊 共处理 ${Object.keys(data.data).length} 个日期的比赛`);
-    } else {
-      console.log('❌ 数据获取失败或数据为空，不更新文件');
-    }
+    // 保存到文件
+    const filename = `sports-data-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    fs.writeFileSync(filename, JSON.stringify(data, null, 2));
+    
+    console.log(`✅ 数据已保存到文件: ${filename}`);
+    console.log(`📊 共处理 ${data.data.length} 场比赛`);
+    
+    // 同时保存一个最新的文件
+    fs.writeFileSync('sports-data-latest.json', JSON.stringify(data, null, 2));
+    console.log('✅ 最新数据已保存到: sports-data-latest.json');
     
   } catch (error) {
     console.error('❌ 执行失败:', error);
