@@ -177,16 +177,34 @@ async function main() {
     
     const data = await fetchAndProcessData();
     
-    // 保存到文件
-    const filename = `sports-data-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    fs.writeFileSync(filename, JSON.stringify(data, null, 2));
+    // 检查数据是否有效
+    if (!data.success || !data.data || Object.keys(data.data).length === 0) {
+      console.log('❌ 数据获取失败或数据为空，不更新文件');
+      return;
+    }
     
-    console.log(`✅ 数据已保存到文件: ${filename}`);
-    console.log(`📊 共处理 ${data.data.length} 场比赛`);
+    // 先保存到临时文件
+    const tempFilename = 'sports-data-temp.json';
+    fs.writeFileSync(tempFilename, JSON.stringify(data, null, 2));
     
-    // 同时保存一个最新的文件
-    fs.writeFileSync('sports-data-latest.json', JSON.stringify(data, null, 2));
-    console.log('✅ 最新数据已保存到: sports-data-latest.json');
+    // 验证临时文件是否有效
+    try {
+      const tempData = JSON.parse(fs.readFileSync(tempFilename, 'utf8'));
+      if (tempData.success && tempData.data && Object.keys(tempData.data).length > 0) {
+        // 临时文件有效，替换原文件
+        fs.renameSync(tempFilename, 'sports-data-latest.json');
+        console.log('✅ 最新数据已保存到: sports-data-latest.json');
+        console.log(`📊 共处理 ${Object.keys(data.data).length} 个日期的比赛`);
+      } else {
+        console.log('❌ 临时文件数据无效，不更新原文件');
+        fs.unlinkSync(tempFilename); // 删除临时文件
+      }
+    } catch (error) {
+      console.log('❌ 临时文件验证失败，不更新原文件');
+      if (fs.existsSync(tempFilename)) {
+        fs.unlinkSync(tempFilename); // 删除临时文件
+      }
+    }
     
   } catch (error) {
     console.error('❌ 执行失败:', error);
