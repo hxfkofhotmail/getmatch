@@ -23,7 +23,7 @@ jobs:
         cache: 'npm'
         
     - name: Run data fetcher
-      run: node index.js
+      run: node ./get-match-list.js
       
     - name: Commit and push if changed
       run: |
