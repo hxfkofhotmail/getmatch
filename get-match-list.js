@@ -9,13 +9,6 @@ function getShanghaiTime() {
   return shanghaiTime.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 }
 
-// 获取日期字符串（用于筛选）
-function getDateString(daysFromNow = 0) {
-  const now = new Date();
-  const targetDate = new Date(now.getTime() + daysFromNow * 24 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000);
-  return targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
-}
-
 async function fetchWithRetry(url, options, maxRetries = 2) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -106,9 +99,9 @@ async function getMatchNodes(mgdbId) {
   return nodes;
 }
 
-async function fetchAndProcessData(mode = 'all') {
+async function fetchAndProcessData() {
   try {
-    console.log(`开始获取赛事数据 (模式: ${mode})...`);
+    console.log('开始获取赛事数据...');
     
     // 获取主JSON数据
     const jsonResponse = await fetchWithRetry('https://vms-sc.miguvideo.com/vms-match/v6/staticcache/basic/match-list/normal-match-list/0/all/default/1/miguvideo');
@@ -121,36 +114,15 @@ async function fetchAndProcessData(mode = 'all') {
     const matchList = jsonData.body.matchList;
     const dateKeys = Object.keys(matchList).sort();
     
-    // 获取今天和明天的日期
-    const today = getDateString(0);
-    const tomorrow = getDateString(1);
-    
-    // 处理所有日期的比赛
+    // 处理每个日期的比赛
     for (const dateKey of dateKeys) {
       const matches = matchList[dateKey];
       console.log(`处理日期 ${dateKey}，共 ${matches.length} 场比赛`);
       
       for (const match of matches) {
-        let nodes = [];
-        
-        // 根据模式决定是否获取节点数据
-        const shouldFetchNodes = 
-          mode === 'all' || // 全部模式：所有比赛都获取节点
-          (mode === 'today' && dateKey === today) || // 今天模式：只有今天比赛获取节点
-          (mode === 'tomorrow' && dateKey === tomorrow) || // 明天模式：只有明天比赛获取节点
-          (mode === 'today_tomorrow' && (dateKey === today || dateKey === tomorrow)); // 今明两天模式
-        
-        if (shouldFetchNodes) {
-          // 获取节点数据
-          console.log(`获取比赛 ${match.mgdbId} 的节点数据...`);
-          nodes = await getMatchNodes(match.mgdbId);
-          // 添加延迟以避免请求过于频繁
-          await new Promise(resolve => setTimeout(resolve, 500));
-        } else {
-          // 不获取节点数据，使用空数组
-          console.log(`跳过获取比赛 ${match.mgdbId} 的节点数据 (模式: ${mode})`);
-          nodes = [];
-        }
+        // 获取节点数据
+        console.log(`获取比赛 ${match.mgdbId} 的节点数据...`);
+        const nodes = await getMatchNodes(match.mgdbId);
         
         const mergedMatch = {
           mgdbId: match.mgdbId,
@@ -172,13 +144,15 @@ async function fetchAndProcessData(mode = 'all') {
         };
         
         result.push(mergedMatch);
+        
+        // 添加延迟以避免请求过于频繁
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
     
     // 生成最终数据
     const finalData = {
       success: true,
-      mode: mode,
       updateTime: getShanghaiTime(),
       data: result
     };
@@ -189,7 +163,6 @@ async function fetchAndProcessData(mode = 'all') {
     console.error('处理数据时发生错误:', error);
     return {
       success: false,
-      mode: mode,
       error: error.message,
       updateTime: getShanghaiTime(),
       data: []
@@ -202,13 +175,7 @@ async function main() {
   try {
     console.log('🚀 开始执行数据获取任务...');
     
-    // ========== 在这里修改模式 ==========
-    const MODE = 'today'; // 可选: 'all'全部 | 'today'今天 | 'tomorrow'明天 | 'today_tomorrow'今明两天
-    // ===================================
-    
-    console.log(`📋 当前模式: ${MODE}`);
-    
-    const data = await fetchAndProcessData(MODE);
+    const data = await fetchAndProcessData();
     
     // 检查数据是否有效
     if (!data.success || !data.data || Object.keys(data.data).length === 0) {
@@ -227,7 +194,7 @@ async function main() {
         // 临时文件有效，替换原文件
         fs.renameSync(tempFilename, 'sports-data-latest.json');
         console.log('✅ 最新数据已保存到: sports-data-latest.json');
-        console.log(`📊 共处理 ${data.data.length} 场比赛`);
+        console.log(`📊 共处理 ${Object.keys(data.data).length} 个日期的比赛`);
       } else {
         console.log('❌ 临时文件数据无效，不更新原文件');
         fs.unlinkSync(tempFilename); // 删除临时文件
@@ -249,4 +216,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { fetchAndProcessData, getMatchNodes, getDateString };
+module.exports = { fetchAndProcessData, getMatchNodes };
